@@ -22,6 +22,8 @@ uv run --locked app.py
 
 Open `http://localhost:8000`. The staff view is at `http://localhost:8000/?staff` and requires the configured PIN. Without `PG*` and `OBJ_*` settings the app uses in-memory development storage, which is lost on restart.
 
+Staff can filter the inventory by status, edit public titles, descriptions and locations, mark physical returns, archive records, and reopen items. Only open items appear in attendee search. Archiving preserves the photo and claim history; reopening does not clear earlier claim attempts. Updates reject stale listings instead of overwriting another staff member's change.
+
 To use persistent storage, configure `PG*` for a PostgreSQL role and schema with `pgvector` available, verify TLS with your database CA, and configure `OBJ_*` with a private bucket and a bucket-scoped key. The example `snapclaim.service` expects the checkout at `/root/snapclaim` and binds to port 80; use it only on a dedicated host or after checking for a port conflict. Keep credentials out of Git and use a firewall to restrict ingress.
 
 ## Demo with staged objects

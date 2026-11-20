@@ -16,6 +16,7 @@ Owner:       describes the item -> vector search -> sees only public summaries (
 Inference is required. Without PG*/OBJ_* in .env it runs in memory (dev mode), so you can build before the labs.
 """
 import base64
+import hmac
 import json
 import math
 import os
@@ -24,16 +25,18 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
+from typing import Annotated, Literal
 
 import boto3
 import psycopg
 import uvicorn
 from botocore.config import Config
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Form, Header, HTTPException, Query, Response as ApiResponse, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 load_dotenv(override=True)
 for name in ("AKAMAI_BASE_URL", "AKAMAI_API_KEY", "CHAT_MODEL", "VISION_MODEL", "EMBEDDING_MODEL"):
@@ -59,6 +62,7 @@ app = FastAPI()
 
 # ---------- storage: PostgreSQL + Object Storage, or memory in dev mode ----------
 MEMORY = {"items": {}, "claims": [], "photos": {}}
+MEMORY_LOCK = RLock()
 _ready = False
 
 
@@ -239,7 +243,7 @@ def search(body: Search):
         results = [{"id": str(r[0]), "title": r[1], "category": r[2], "public_text": r[3], "found_where": r[4],
                     "proof_question": r[5], "created_at": r[6].isoformat(), "distance": float(r[7])} for r in rows]
     else:
-        results = sorted(({**{k: v for k, v in item.items() if k not in ("embedding", "private_details")},
+        results = sorted(({**{k: v for k, v in item.items() if k not in ("embedding", "private_details", "_revision")},
                            "distance": cosine_distance(vector, item["embedding"])}
                           for item in MEMORY["items"].values() if item["status"] == "open"),
                          key=lambda r: r["distance"])[:5]
@@ -252,44 +256,76 @@ def search(body: Search):
 
 
 class Claim(BaseModel):
-    item_id: str
+    item_id: uuid.UUID
     answer: str
+
+
+def claim_snapshot(conn, item_id, *, lock=False):
+    # Count attempts in a separate statement after taking the lock so a waiter's
+    # count includes attempts committed by the previous holder.
+    suffix = " for update" if lock else ""
+    row = conn.execute("select private_details, proof_question, photo_key, found_where, "
+                       "status, xmin::text from items where id = %s" + suffix, (item_id,)).fetchone()
+    if row:
+        count = conn.execute("select count(*) from claims where item_id = %s and not passed", (item_id,)).fetchone()[0]
+        return (*row, count)
+    return None
+
+
+def memory_claim_snapshot(item_id):
+    item = MEMORY["items"].get(item_id)
+    if item:
+        fails = sum(1 for c in MEMORY["claims"] if c["item_id"] == item_id and not c["passed"])
+        return (item["private_details"], item["proof_question"], item["photo_key"], item["found_where"],
+                item["status"], str(item.get("_revision", 0)), fails)
+    return None
+
+
+def check_claim(row, expected_revision=None):
+    if not row:
+        raise HTTPException(404, "Item not found.")
+    if row[4] != "open" or (expected_revision is not None and row[5] != expected_revision):
+        raise HTTPException(409, "This item changed or is no longer open. Search the board again.")
+    if row[6] >= 3:
+        raise HTTPException(429, "Too many wrong answers. Please see the front desk with ID.")
 
 
 @app.post("/claim")
 def claim(body: Claim):
     if not body.answer.strip():
         raise HTTPException(400, "Answer the question first.")
+    item_id = str(body.item_id)
     if DATABASE:
         with db() as conn:
-            row = conn.execute("select private_details, proof_question, photo_key, found_where, status, "
-                               "(select count(*) from claims where item_id = items.id and not passed) "
-                               "from items where id = %s", (body.item_id,)).fetchone()
+            row = claim_snapshot(conn, item_id)
     else:
-        item = MEMORY["items"].get(body.item_id)
-        fails = sum(1 for c in MEMORY["claims"] if c["item_id"] == body.item_id and not c["passed"])
-        row = item and (item["private_details"], item["proof_question"], item["photo_key"],
-                        item["found_where"], item["status"], fails)
-    if not row:
-        raise HTTPException(404, "Item not found.")
-    private, question, key, where, status, fails = row
-    if status != "open":
-        raise HTTPException(409, "This item was already claimed.")
-    if fails >= 3:
-        raise HTTPException(429, "Too many wrong answers. Please see the front desk with ID.")
+        with MEMORY_LOCK:
+            row = memory_claim_snapshot(item_id)
+    check_claim(row)
+    assert row is not None
+    private, question, key, where, _, revision, _ = row
     verdict = judge_claim(private, question, body.answer.strip())
-    record = {"item_id": body.item_id, "answer": body.answer.strip(), "passed": verdict["passed"],
+    record = {"item_id": item_id, "answer": body.answer.strip(), "passed": verdict["passed"],
               "confidence": verdict.get("confidence"), "reason": verdict.get("reason")}
     if DATABASE:
         with db() as conn:
+            current = claim_snapshot(conn, item_id, lock=True)
+            check_claim(current, revision)
+            assert current is not None
+            fails = current[6]
             conn.execute("insert into claims (item_id, answer, passed, confidence, reason) values (%s,%s,%s,%s,%s)",
-                         (body.item_id, record["answer"], record["passed"], record["confidence"], record["reason"]))
+                         (item_id, record["answer"], record["passed"], record["confidence"], record["reason"]))
             if verdict["passed"]:
-                conn.execute("update items set status = 'claimed' where id = %s", (body.item_id,))
+                conn.execute("update items set status = 'claimed' where id = %s", (item_id,))
     else:
-        MEMORY["claims"].append(record)
-        if verdict["passed"]:
-            MEMORY["items"][body.item_id]["status"] = "claimed"
+        with MEMORY_LOCK:
+            current = memory_claim_snapshot(item_id)
+            check_claim(current, revision)
+            assert current is not None
+            fails = current[6]
+            MEMORY["claims"].append(record)
+            if verdict["passed"]:
+                MEMORY["items"][item_id].update(status="claimed", _revision=int(revision) + 1)
     if not verdict["passed"]:
         return {"passed": False, "reason": verdict.get("reason"), "tries_left": max(0, 2 - fails)}
     return {"passed": True, "reason": verdict.get("reason"), "photo_url": photo_link(key),
@@ -299,27 +335,126 @@ def claim(body: Claim):
 DESK_PIN = os.environ.get("DESK_PIN", "")
 
 
-@app.get("/desk")
-def desk(x_desk_pin: str = Header("")):
-    """Staff-only finder-desk view: every item with its status and a short-lived photo link.
-    Photos are the secret owners prove against, so this view needs the DESK_PIN from .env."""
+def require_staff(x_desk_pin: str = Header("")):
     if not DESK_PIN:
         raise HTTPException(403, "Front desk is off. Set DESK_PIN in .env to turn it on.")
-    if x_desk_pin != DESK_PIN:
+    if not hmac.compare_digest(x_desk_pin.encode(), DESK_PIN.encode()):
         raise HTTPException(401, "Wrong staff PIN.")
+
+
+DeskStatus = Literal["open", "claimed", "returned", "archived"]
+Revision = Annotated[str, StringConstraints(pattern=r"^[0-9]{1,20}$")]
+TRANSITIONS = {"open": {"returned", "archived"}, "claimed": {"returned", "open", "archived"},
+               "returned": {"open", "archived"}, "archived": {"open"}}
+
+
+class DeskEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: Revision
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    public_text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=800)]
+    found_where: Annotated[str, StringConstraints(strip_whitespace=True, max_length=180)]
+
+
+class DeskChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: Revision
+    status: Literal["open", "returned", "archived"]
+
+
+def check_staff_revision(current, requested):
+    if current != requested:
+        raise HTTPException(409, "Someone changed this item. Refresh the desk and retry.")
+
+
+def memory_desk_item(item_id):
+    item = MEMORY["items"].get(item_id)
+    if not item:
+        raise HTTPException(404, "Item not found.")
+    return item
+
+
+@app.get("/desk", dependencies=[Depends(require_staff)])
+def desk(response: ApiResponse, status: DeskStatus | None = None, offset: int = Query(0, ge=0, le=10_000)):
+    """Staff inventory, including archived records and short-lived photo links."""
+    response.headers["Cache-Control"] = "no-store"
     if DATABASE:
         with db() as conn:
-            rows = conn.execute("select id, title, found_where, status, photo_key, created_at, "
+            rows = conn.execute("select id, title, found_where, status, photo_key, created_at, public_text, xmin::text, "
                                 "(select count(*) from claims where item_id = items.id) from items "
-                                "order by created_at desc limit 50").fetchall()
+                                "where (%s::text is null or status = %s) "
+                                "order by created_at desc, id limit 50 offset %s", (status, status, offset)).fetchall()
         items = [{"id": str(r[0]), "title": r[1], "found_where": r[2], "status": r[3], "photo_url": photo_link(r[4]),
-                  "created_at": r[5].isoformat(), "claims": r[6]} for r in rows]
+                  "created_at": r[5].isoformat(), "public_text": r[6], "revision": r[7], "claims": r[8]} for r in rows]
     else:
-        items = [{"id": i["id"], "title": i["title"], "found_where": i["found_where"], "status": i["status"],
-                  "photo_url": photo_link(i["photo_key"]), "created_at": i["created_at"],
-                  "claims": sum(1 for c in MEMORY["claims"] if c["item_id"] == i["id"])}
-                 for i in sorted(MEMORY["items"].values(), key=lambda i: i["created_at"], reverse=True)]
+        with MEMORY_LOCK:
+            rows = sorted((i for i in MEMORY["items"].values() if status is None or i["status"] == status),
+                          key=lambda i: (i["created_at"], i["id"]), reverse=True)[offset:offset + 50]
+            items = [{"id": i["id"], "title": i["title"], "found_where": i["found_where"], "status": i["status"],
+                      "photo_url": photo_link(i["photo_key"]), "created_at": i["created_at"], "public_text": i["public_text"],
+                      "revision": str(i.get("_revision", 0)),
+                      "claims": sum(1 for c in MEMORY["claims"] if c["item_id"] == i["id"])} for i in rows]
     return items
+
+
+@app.patch("/desk/items/{item_id}", dependencies=[Depends(require_staff)])
+def edit_item(item_id: uuid.UUID, body: DeskEdit):
+    key = str(item_id)
+    if DATABASE:
+        with db() as conn:
+            candidate = conn.execute("select category, xmin::text from items where id=%s", (key,)).fetchone()
+        if not candidate:
+            raise HTTPException(404, "Item not found.")
+        category, revision = candidate
+    else:
+        with MEMORY_LOCK:
+            item = memory_desk_item(key)
+            category, revision = item["category"], str(item.get("_revision", 0))
+    check_staff_revision(revision, body.revision)
+    vector = embed(f"{body.title}. {category}. {body.public_text} Found at: {body.found_where}")
+    if DATABASE:
+        with db() as conn:
+            changed = conn.execute("update items set title=%s, public_text=%s, found_where=%s, embedding=%s::vector "
+                                   "where id=%s and xmin::text=%s returning status, xmin::text",
+                                   (body.title, body.public_text, body.found_where, vec_text(vector), key, revision)).fetchone()
+            if not changed:
+                raise HTTPException(409, "Someone changed this item. Refresh the desk and retry.")
+    else:
+        with MEMORY_LOCK:
+            item = memory_desk_item(key)
+            check_staff_revision(str(item.get("_revision", 0)), revision)
+            item.update(title=body.title, public_text=body.public_text, found_where=body.found_where,
+                        embedding=vector, _revision=int(revision) + 1)
+            changed = item["status"], str(item["_revision"])
+    return {"id": key, "status": changed[0], "revision": changed[1]}
+
+
+def check_transition(status, revision, body):
+    check_staff_revision(revision, body.revision)
+    if body.status not in TRANSITIONS.get(status, set()):
+        raise HTTPException(409, "This action is not available for the item's current status.")
+
+
+@app.post("/desk/items/{item_id}/status", dependencies=[Depends(require_staff)])
+def change_item_status(item_id: uuid.UUID, body: DeskChange):
+    key = str(item_id)
+    if DATABASE:
+        with db() as conn:
+            current = conn.execute("select status, xmin::text from items where id=%s for update", (key,)).fetchone()
+            if not current:
+                raise HTTPException(404, "Item not found.")
+            current_status, current_revision = current
+            check_transition(current_status, current_revision, body)
+            updated = conn.execute("update items set status=%s where id=%s returning xmin::text", (body.status, key)).fetchone()
+            assert updated is not None
+            revision = updated[0]
+    else:
+        with MEMORY_LOCK:
+            item = memory_desk_item(key)
+            check_transition(item["status"], str(item.get("_revision", 0)), body)
+            item.update(status=body.status, _revision=int(body.revision) + 1)
+            revision = str(item["_revision"])
+    return {"id": key, "status": body.status, "revision": revision}
 
 
 @app.get("/dev-photo/{key:path}")
