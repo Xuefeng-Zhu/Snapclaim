@@ -133,11 +133,25 @@
  .tile .meta .chip{margin:0}
  .tile .where{margin:8px 0 0;color:var(--sub)}
  .tile .where b{color:var(--ink)}
- .desk-tools,.desk-actions,.desk-pages{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
- .desk-tools{background:#fffaf0;padding:10px 14px;margin-top:20px;border-radius:8px}
- .desk-search{display:flex;gap:8px;align-items:center;flex:1 1 440px;flex-wrap:wrap}
- .desk-search input{flex:1 1 170px;min-width:0;width:auto;margin:0}
- .desk-tools label{margin:0} .desk-tools select{font:inherit;padding:6px;color:#3d2c1c;background:#fffdf7;border:1px solid #b38d63;border-radius:5px}
+ .desk-actions,.desk-pages{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+ .desk-tools{display:grid;grid-template-columns:minmax(0,1fr) minmax(142px,22%);gap:5px 16px;
+   margin-top:20px;padding:14px 16px;background:#fffaf0;border:1px solid #c7a987;border-radius:8px;box-shadow:2px 4px 9px #45270f29}
+ .desk-tools label{margin:0 0 6px;font:700 13px/1.3 var(--ui);color:#553922}
+ .desk-field{position:relative}
+ .desk-field>svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#79583e;pointer-events:none}
+ .desk-field input,.desk-tools select{appearance:none;width:100%;min-width:0;min-height:44px;margin:0;color:var(--ink);
+   background:#fffdf7;border:1px solid #bda084;border-radius:6px;font:400 16px/1.4 var(--ui)}
+ .desk-field input{padding:9px 46px 9px 38px}
+ .desk-field input::-webkit-search-cancel-button{appearance:none}
+ .desk-tools select{appearance:auto;padding:8px 10px}
+ .desk-field input:focus-visible{outline:2px solid #793b21;outline-offset:2px}
+ .desk-field input::placeholder,.desk-hint{color:var(--sub)}
+ .desk-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:36px;height:36px;
+   padding:0;border:0;border-radius:5px;background:transparent;color:#6d4b32;cursor:pointer}
+ .desk-clear:hover{background:#f2e4cd}
+ .desk-clear:focus-visible{outline:2px solid #793b21;outline-offset:-2px}
+ .desk-hint{grid-column:1/-1;margin:0;font-size:12px}
+ @media(max-width:520px){.desk-tools{grid-template-columns:1fr;row-gap:10px;padding:12px}.desk-hint{grid-row:2;margin-top:-4px}}
  .desk-pages{justify-content:center;margin:20px 0;color:#2f1d0e}
  .desk-actions{margin-top:11px}
  .desk-actions [data-status=returned]{background:#e6efe3;color:#244a2f;border-color:#8b9d83}
@@ -210,15 +224,20 @@
   <div class="stat"><span class="pin"></span><div class="n" id="sTries">0</div><div class="l">claim attempts</div></div>
   <button class="go ghost" id="deskBtn">↻ Refresh</button>
  </div>
- <div class="desk-tools">
-  <form id="deskSearch" class="desk-search" role="search" aria-label="Staff inventory">
-   <label for="deskQuery">Search items</label><input id="deskQuery" type="search" maxlength="160" placeholder="Title, description, location or ID" autocomplete="off">
-   <button class="desk-small" type="submit">Search</button><button class="desk-small" id="deskClear" type="button">Clear</button>
+ <div class="desk-tools" role="search" aria-label="Staff inventory">
+  <form id="deskSearch">
+   <label for="deskQuery">Search items</label>
+   <div class="desk-field">
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 4 4"/></svg>
+    <input id="deskQuery" type="search" maxlength="160" placeholder="Title, description, location or ID" autocomplete="off" aria-describedby="deskSearchHint">
+    <button class="desk-clear" id="deskClear" type="button" aria-label="Clear search" title="Clear search" hidden><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+   </div>
   </form>
-  <label for="deskFilter">Status</label><select id="deskFilter"><option value="">All items</option><option value="open">Open</option><option value="claimed">Claimed</option><option value="returned">Returned</option><option value="archived">Archived</option></select>
-  <button class="desk-small" id="deskLock" type="button">Lock desk</button></div>
+  <div><label for="deskFilter">Status</label><select id="deskFilter"><option value="">All items</option><option value="open">Open</option><option value="claimed">Claimed</option><option value="returned">Returned</option><option value="archived">Archived</option></select></div>
+  <p class="desk-hint" id="deskSearchHint">Results update as you type.</p>
+ </div>
  <div id="deskList" class="board"></div>
- <div class="desk-pages"><button class="desk-small" id="deskPrev" type="button">Previous</button><span id="deskPage"></span><button class="desk-small" id="deskNext" type="button">Next</button></div>
+ <div class="desk-pages"><button class="desk-small" id="deskPrev" type="button">Previous</button><span id="deskPage" role="status"></span><button class="desk-small" id="deskNext" type="button">Next</button></div>
  </div>
  <p id="deskNotice" role="status" aria-live="polite"></p>
 </section>
@@ -230,7 +249,7 @@ const when=t=>new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"
 const EMOJI={electronics:"🔌",bag:"🎒",clothing:"🧥",bottle:"🧴",keys:"🔑",wallet:"👛",jewelry:"💍",document:"📄",other:"📦"};
 const LOCK=`<svg viewBox="0 0 24 24" fill="none" stroke="#2b2118" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
-  if(b.dataset.t!=="desk") clearDeskVerification();
+  if(b.dataset.t!=="desk"&&$("#desk").classList.contains("on")) lockDesk();
   document.querySelectorAll("nav button,section").forEach(x=>x.classList.remove("on"));
   b.classList.add("on"); $("#"+b.dataset.t).classList.add("on"); if(b.dataset.t==="desk") loadDesk();});
 async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(typeof j.detail==="string"?j.detail:"Check the fields and try again.");e.status=r.status;throw e;}return j;}
@@ -290,17 +309,29 @@ async function claim(id,btn){const out=$("#c-"+id), root=$("#r-"+id);busy(btn,tr
 const deskStates={open:"Open",claimed:"Claimed",returned:"Returned",archived:"Archived"};
 const deskActions={open:["returned","archived"],claimed:["returned","open","archived"],returned:["open","archived"],archived:["open"]};
 const actionLabels={returned:"Mark returned",archived:"Archive",open:"Reopen"};
-let deskPin="", deskOffset=0, deskRequest=0, deskQuery="";
+let deskPin="", deskOffset=0, deskRequest=0, deskQuery="", deskSearchTimer;
 const deskHeaders=()=>({"X-Desk-Pin":deskPin,"Content-Type":"application/json"});
 function clearDeskVerification(){
   document.querySelectorAll("#deskList .desk-verification").forEach(details=>{
     details.open=false; details.querySelector(".verification-body").replaceChildren();
   });
 }
-window.addEventListener("pagehide",clearDeskVerification);
+window.addEventListener("pagehide",()=>{if(deskPin) lockDesk();});
+function deskLoading(){
+  clearDeskVerification();
+  $("#deskList").inert=true;
+  $("#deskList").setAttribute("aria-busy","true");
+  $("#deskPrev").disabled=$("#deskNext").disabled=true;
+}
+function deskLoaded(){
+  $("#deskList").inert=false;
+  $("#deskList").removeAttribute("aria-busy");
+}
 function lockDesk(message=""){
+  clearTimeout(deskSearchTimer);
   deskRequest++; deskPin=""; deskOffset=0; $("#deskList").replaceChildren();
-  deskQuery=""; $("#deskQuery").value="";
+  deskLoaded();
+  deskQuery=""; $("#deskQuery").value=""; $("#deskClear").hidden=true; $("#deskFilter").value="";
   $("#deskInventory").hidden=true; $("#deskLogin").hidden=false; $("#deskNotice").textContent=message;
 }
 function deskTile(item){
@@ -364,10 +395,11 @@ function bindDeskVerification(tile, endpoint, inventoryRequest){
   };
 }
 async function loadDesk(message=""){
+  clearTimeout(deskSearchTimer);
   if(!deskPin){lockDesk(message);return;}
   const request=++deskRequest, filter=$("#deskFilter").value, query=deskQuery;
-  clearDeskVerification();
-  $("#deskNotice").textContent="Loading inventory…";
+  deskLoading();
+  $("#deskNotice").textContent=$("#deskInventory").hidden?"Loading inventory…":"";
   try{
     const params=new URLSearchParams({offset:String(deskOffset)}); if(filter) params.set("status",filter);
     if(query) params.set("q",query);
@@ -398,14 +430,31 @@ async function loadDesk(message=""){
       tile.querySelectorAll("[data-status]").forEach(button=>button.onclick=()=>change("POST",endpoint+"/status",{status:button.dataset.status},`Item status: ${deskStates[button.dataset.status]}.`));
       tile.querySelector("form").onsubmit=e=>{e.preventDefault();change("PATCH",endpoint,Object.fromEntries(new FormData(e.currentTarget)),"Listing updated.");};
     });
-  }catch(e){if(request===deskRequest){if(e.status===401||e.status===403) lockDesk(e.message);else $("#deskNotice").textContent=e.message;}}
+  }catch(e){
+    if(request!==deskRequest) return;
+    if(e.status===401||e.status===403){lockDesk(e.message);return;}
+    $("#deskList").replaceChildren(); $("#deskPage").textContent="Inventory unavailable";
+    $("#deskNotice").textContent=e.message;
+  }finally{if(request===deskRequest) deskLoaded();}
 }
 $("#deskLogin").onsubmit=e=>{e.preventDefault();deskPin=$("#deskCode").value;$("#deskCode").value="";loadDesk();};
-$("#deskLock").onclick=()=>{lockDesk();$("#deskCode").focus();};
 $("#deskBtn").onclick=()=>loadDesk();
-$("#deskSearch").onsubmit=e=>{e.preventDefault();deskQuery=$("#deskQuery").value.trim();deskOffset=0;loadDesk();};
-$("#deskClear").onclick=()=>{deskQuery="";$("#deskQuery").value="";deskOffset=0;loadDesk();$("#deskQuery").focus();};
-$("#deskFilter").onchange=()=>{deskOffset=0;loadDesk();};
+function updateDeskSearch(immediate=false){
+  const value=$("#deskQuery").value, query=value.trim();
+  $("#deskClear").hidden=!value;
+  if(!immediate&&query===deskQuery) return;
+  deskQuery=query; deskOffset=0;
+  if(immediate){loadDesk();return;}
+  clearTimeout(deskSearchTimer);
+  // Invalidate past results as soon as the query changes, not when the timer fires.
+  deskRequest++; deskLoading();
+  deskSearchTimer=setTimeout(loadDesk,250);
+}
+$("#deskSearch").onsubmit=e=>{e.preventDefault();updateDeskSearch(true);};
+$("#deskQuery").oninput=e=>{if(!e.isComposing) updateDeskSearch();};
+$("#deskQuery").oncompositionend=()=>updateDeskSearch();
+$("#deskClear").onclick=()=>{$("#deskQuery").value="";updateDeskSearch(true);$("#deskQuery").focus();};
+$("#deskFilter").onchange=()=>updateDeskSearch(true);
 $("#deskPrev").onclick=()=>{deskOffset=Math.max(0,deskOffset-50);loadDesk();};
 $("#deskNext").onclick=()=>{deskOffset+=50;loadDesk();};
 if(new URLSearchParams(location.search).has("staff")){ $("#deskTab").hidden=false; $("#deskTab").click(); }

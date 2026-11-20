@@ -22,7 +22,7 @@ uv run --locked app.py
 
 Open `http://localhost:8000`. The staff view is at `http://localhost:8000/?staff` and requires the configured PIN. Without `PG*` and `OBJ_*` settings the app uses in-memory development storage, which is lost on restart.
 
-Staff can search titles, descriptions, found locations, and item IDs, and combine their search with the status filter. Staff can also edit public titles, descriptions and locations, mark physical returns, archive records, and reopen items. Only open items appear in attendee search. Archiving preserves the photo and claim history; reopening does not clear earlier claim attempts. Updates reject stale listings instead of overwriting another staff member's change.
+Staff can search titles, descriptions, found locations, and item IDs. Results update as they type and can be narrowed with the status filter. Switching away from the desk or reloading the page requires the PIN again. Staff can also edit public titles, descriptions and locations, mark physical returns, archive records, and reopen items. Only open items appear in attendee search. Archiving preserves the photo and claim history; reopening does not clear earlier claim attempts. Updates reject stale listings instead of overwriting another staff member's change.
 
 On an item card, open **Show verification details** to compare the ownership question, private clues, and submitted answers. The app shows the AI outcome for each attempt, not a separate official answer. This data is loaded only on demand after PIN authentication and is not part of the public search or staff inventory list. Don’t share clues or past answers with claimants; verify ownership in person.
 
