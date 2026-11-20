@@ -125,8 +125,6 @@
  .tile .pol{padding-bottom:0} .tile .info{text-align:center;padding:0 8px 14px;font-size:13px;color:var(--sub)}
  .tile.done .pol::after{content:"RETURNED";position:absolute;left:50%;top:38%;transform:translate(-50%,-50%) rotate(-14deg);
    font:900 24px var(--ui);letter-spacing:.06em;color:var(--ok);border:4px solid var(--ok);padding:4px 10px;border-radius:6px;background:rgba(255,255,255,.8)}
- footer{max-width:1100px;margin:0 auto;padding:0 20px 30px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
- footer .chip{background:rgba(255,250,240,.9);box-shadow:0 2px 4px rgba(0,0,0,.15)}
  @media(max-width:720px){.found{grid-template-columns:1fr}.logged{grid-template-columns:1fr}.logged .pol{max-width:240px}
    nav{width:100%}nav button{flex:1;padding:10px 8px;font-size:13px}.deskbar .go{margin:0}}
 [hidden]{display:none!important}
@@ -175,7 +173,6 @@
  <div id="deskList" class="board"></div>
 </section>
 </main>
-<footer id="health"></footer>
 
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -252,6 +249,4 @@ async function loadDesk(){try{let pin=sessionStorage.getItem("deskPin");
    :`<div class="note-empty"><span class="pin"></span>Nothing pinned yet.</div>`;
   }catch(e){$("#deskList").innerHTML=`<div class="verdict bad"><p>${esc(e.message)}</p></div>`;}}
 $("#deskBtn").onclick=loadDesk;
-api("/health").then(h=>{const c=v=>v==="connected"||v==="configured"?"ok":String(v).startsWith("memory")?"weak":"";
-  $("#health").innerHTML=`<span class="chip ${c(h.inference)}">Inference · ${esc(h.inference)}</span><span class="chip ${c(h.database)}">PostgreSQL · ${esc(h.database)}</span><span class="chip ${c(h.object_storage)}">Object Storage · ${esc(h.object_storage)}</span>`;}).catch(()=>{});
 </script></body></html>
