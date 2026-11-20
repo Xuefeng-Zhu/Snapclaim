@@ -122,15 +122,31 @@
  .stat:nth-child(3){transform:rotate(-.5deg);background:linear-gradient(#d0ebff,#a5d8ff)}
  .stat .n{font:800 34px/1 var(--ui)} .stat .l{font:700 22px/1 var(--hand);margin-top:4px}
  .deskbar .go{align-self:center;margin:0 0 0 auto}
- .tile .pol{padding-bottom:0} .tile .info{text-align:center;padding:0 8px 14px;font-size:13px;color:var(--sub)}
+ #deskList{grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:26px 22px;margin-top:26px}
+ .tile{min-width:0;background:var(--paper);border:1px solid #decbb1;border-radius:6px;box-shadow:2px 5px 12px #45270f38}
+ #deskList .tile .pol{background:transparent;padding:10px 10px 0;box-shadow:none;transform:none!important;z-index:auto}
+ .tile .shot{aspect-ratio:8/5;background:#eee6d9;border-radius:3px}
+ .tile .shot img{object-fit:contain}
+ .tile .cap{text-align:left;font-size:clamp(23px,3vw,28px);padding:9px 4px;overflow-wrap:anywhere}
+ .tile .info{margin:0 10px;padding:11px 4px 13px;border-top:1px solid #e6d7c4;background:var(--paper);font-size:13px;color:var(--ink);overflow-wrap:anywhere}
+ .tile .meta{display:flex;flex-wrap:wrap;gap:5px}
+ .tile .meta .chip{margin:0}
+ .tile .where{margin:8px 0 0;color:var(--sub)}
+ .tile .where b{color:var(--ink)}
  .desk-tools,.desk-actions,.desk-pages{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
  .desk-tools{background:#fffaf0;padding:10px 14px;margin-top:20px;border-radius:8px}
  .desk-search{display:flex;gap:8px;align-items:center;flex:1 1 440px;flex-wrap:wrap}
  .desk-search input{flex:1 1 170px;min-width:0;width:auto;margin:0}
  .desk-tools label{margin:0} .desk-tools select{font:inherit;padding:6px;color:#3d2c1c;background:#fffdf7;border:1px solid #b38d63;border-radius:5px}
  .desk-pages{justify-content:center;margin:20px 0;color:#2f1d0e}
- .desk-actions{margin-top:9px} .desk-edit{border-top:1px dashed #c5a987;margin-top:10px;padding-top:8px;text-align:left}
- .desk-edit summary{cursor:pointer;font-weight:700} .desk-edit label{margin-top:8px} .desk-edit textarea{resize:vertical}
+ .desk-actions{margin-top:11px}
+ .desk-actions [data-status=returned]{background:#e6efe3;color:#244a2f;border-color:#8b9d83}
+ .desk-edit{border-top:1px solid #e6d7c4;margin-top:12px;padding-top:8px}
+ .desk-edit summary{cursor:pointer;font-weight:700;color:#593820;padding:5px 0}
+ .desk-edit form{display:grid;gap:9px;margin-top:9px;min-width:0}
+ .desk-edit label{display:grid;gap:5px;margin:0;min-width:0;font:700 13px/1.4 var(--ui)}
+ .desk-edit input,.desk-edit textarea{display:block;width:100%;min-width:0;padding:8px 10px;font-size:16px}
+ .desk-edit form button{justify-self:start}
  .desk-small{font:700 13px var(--ui);cursor:pointer;background:#fff5de;color:#3d2c1c;border:1px solid #99734b;border-radius:6px;padding:6px 9px}
  .desk-small:disabled{opacity:.55;cursor:default}
  .desk-small:focus-visible,.desk-tools select:focus-visible,.desk-edit summary:focus-visible{outline:2px solid #793b21;outline-offset:2px}
@@ -275,13 +291,14 @@ function deskTile(item){
   const state=deskStates[item.status]||"Unknown", actions=deskActions[item.status]||[];
   return `<article class="tile" data-item="${esc(item.id)}"><div class="pol"><span class="pin"></span>
    <div class="shot"><img loading="lazy" src="${esc(item.photo_url)}" alt=""></div><div class="cap">${esc(item.title)}</div></div>
-   <div class="info"><span class="chip ${item.status==="open"?"wait":item.status==="returned"?"ok":""}">${state}</span>
-   <span class="chip">${item.claims} ${item.claims===1?"attempt":"attempts"}</span><p>📍 ${esc(item.found_where||"Location not noted")}</p>
+   <div class="info"><div class="meta"><span class="chip ${item.status==="open"?"wait":item.status==="returned"?"ok":""}">${state}</span>
+   <span class="chip">${item.claims} ${item.claims===1?"attempt":"attempts"}</span></div>
+   <p class="where"><b>Found at:</b> ${esc(item.found_where||"Location not noted")}</p>
    <div class="desk-actions">${actions.map(s=>`<button class="desk-small" type="button" data-status="${s}">${actionLabels[s]}</button>`).join("")}</div>
    <details class="desk-edit"><summary>Edit listing</summary><form>
-    <label>Title<input name="title" required maxlength="120" value="${esc(item.title)}"></label>
+    <label>Title<input type="text" name="title" required maxlength="120" value="${esc(item.title)}"></label>
     <label>Public description<textarea name="public_text" required rows="3" maxlength="800">${esc(item.public_text)}</textarea></label>
-    <label>Found location<input name="found_where" maxlength="180" value="${esc(item.found_where)}"></label>
+    <label>Found location<input type="text" name="found_where" maxlength="180" value="${esc(item.found_where)}"></label>
     <button class="desk-small" type="submit">Save changes</button></form></details>
     <p class="item-notice" role="status"></p></div></article>`;
 }
