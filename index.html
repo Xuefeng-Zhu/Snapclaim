@@ -147,6 +147,15 @@
  .desk-edit label{display:grid;gap:5px;margin:0;min-width:0;font:700 13px/1.4 var(--ui)}
  .desk-edit input,.desk-edit textarea{display:block;width:100%;min-width:0;padding:8px 10px;font-size:16px}
  .desk-edit form button{justify-self:start}
+ .desk-verification{margin-top:12px}
+ .desk-verification summary{cursor:pointer;color:#593820;font-weight:700;padding:6px 0}
+ .desk-verification summary:focus-visible{outline:2px solid #793b21;outline-offset:2px}
+ .desk-verification[open]{padding:0 10px 10px;background:#fff3dd;border:1px solid #e0c69d;border-radius:6px}
+ .verification-body h4{font-size:13px;margin:11px 0 3px}
+ .verification-body p{margin:3px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+ .verification-body .staff-only{color:#6b4d2f;font-size:12px}
+ .verification-body ol{margin:5px 0 7px;padding-inline-start:20px}
+ .verification-body li{padding:6px 0;border-top:1px solid #e0c69d}
  .desk-small{font:700 13px var(--ui);cursor:pointer;background:#fff5de;color:#3d2c1c;border:1px solid #99734b;border-radius:6px;padding:6px 9px}
  .desk-small:disabled{opacity:.55;cursor:default}
  .desk-small:focus-visible,.desk-tools select:focus-visible,.desk-edit summary:focus-visible{outline:2px solid #793b21;outline-offset:2px}
@@ -221,6 +230,7 @@ const when=t=>new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"
 const EMOJI={electronics:"🔌",bag:"🎒",clothing:"🧥",bottle:"🧴",keys:"🔑",wallet:"👛",jewelry:"💍",document:"📄",other:"📦"};
 const LOCK=`<svg viewBox="0 0 24 24" fill="none" stroke="#2b2118" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  if(b.dataset.t!=="desk") clearDeskVerification();
   document.querySelectorAll("nav button,section").forEach(x=>x.classList.remove("on"));
   b.classList.add("on"); $("#"+b.dataset.t).classList.add("on"); if(b.dataset.t==="desk") loadDesk();});
 async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(typeof j.detail==="string"?j.detail:"Check the fields and try again.");e.status=r.status;throw e;}return j;}
@@ -282,6 +292,12 @@ const deskActions={open:["returned","archived"],claimed:["returned","open","arch
 const actionLabels={returned:"Mark returned",archived:"Archive",open:"Reopen"};
 let deskPin="", deskOffset=0, deskRequest=0, deskQuery="";
 const deskHeaders=()=>({"X-Desk-Pin":deskPin,"Content-Type":"application/json"});
+function clearDeskVerification(){
+  document.querySelectorAll("#deskList .desk-verification").forEach(details=>{
+    details.open=false; details.querySelector(".verification-body").replaceChildren();
+  });
+}
+window.addEventListener("pagehide",clearDeskVerification);
 function lockDesk(message=""){
   deskRequest++; deskPin=""; deskOffset=0; $("#deskList").replaceChildren();
   deskQuery=""; $("#deskQuery").value="";
@@ -295,6 +311,7 @@ function deskTile(item){
    <span class="chip">${item.claims} ${item.claims===1?"attempt":"attempts"}</span></div>
    <p class="where"><b>Found at:</b> ${esc(item.found_where||"Location not noted")}</p>
    <div class="desk-actions">${actions.map(s=>`<button class="desk-small" type="button" data-status="${s}">${actionLabels[s]}</button>`).join("")}</div>
+   <details class="desk-verification"><summary>Show verification details</summary><div class="verification-body"></div></details>
    <details class="desk-edit"><summary>Edit listing</summary><form>
     <label>Title<input type="text" name="title" required maxlength="120" value="${esc(item.title)}"></label>
     <label>Public description<textarea name="public_text" required rows="3" maxlength="800">${esc(item.public_text)}</textarea></label>
@@ -302,9 +319,54 @@ function deskTile(item){
     <button class="desk-small" type="submit">Save changes</button></form></details>
     <p class="item-notice" role="status"></p></div></article>`;
 }
+function bindDeskVerification(tile, endpoint, inventoryRequest){
+  const details=tile.querySelector(".desk-verification"), summary=details.querySelector("summary"), body=details.querySelector(".verification-body");
+  let generation=0;
+  details.ontoggle=()=>{
+    const current=++generation;
+    summary.textContent=details.open?"Hide verification details":"Show verification details";
+    body.replaceChildren();
+    if(!details.open) return;
+    const status=document.createElement("p"), older=document.createElement("button");
+    status.setAttribute("role","status");
+    older.className="desk-small"; older.type="button"; older.hidden=true;
+    body.append(status,older);
+    let offset=0;
+    const active=()=>details.open&&body.contains(status)&&tile.isConnected&&current===generation&&inventoryRequest===deskRequest&&$("#desk").classList.contains("on");
+    async function load(){
+      older.disabled=true; status.textContent="Loading verification details…";
+      try{
+        const data=await api(`${endpoint}/verification?offset=${offset}`,{headers:deskHeaders(),cache:"no-store"});
+        if(!active()) return;
+        if(!offset){
+          status.insertAdjacentHTML("beforebegin",`<p class="staff-only">Staff only. Confirm ownership before releasing an item.</p>
+            <h4>Ownership question</h4><p>${esc(data.proof_question)}</p>
+            <h4>Private clues</h4><p>${esc(data.private_details||"No private clues recorded.")}</p>
+            <h4>Submitted answers</h4><ol></ol>`);
+        }
+        const list=body.querySelector("ol");
+        for(const attempt of data.attempts){
+          list.insertAdjacentHTML("beforeend",`<li><span class="chip ${attempt.passed?"ok":""}">${attempt.passed?"AI accepted":"AI did not accept"}</span><p>${esc(attempt.answer||"(Empty answer)")}</p></li>`);
+        }
+        offset+=data.attempts.length;
+        status.textContent=offset?"":"No answers submitted yet.";
+        older.hidden=!data.has_more;
+        older.textContent="Show older answers";
+      }catch(e){
+        if(!active()) return;
+        if(e.status===401||e.status===403){lockDesk(e.message);return;}
+        status.textContent="Couldn't load verification details.";
+        older.hidden=false; older.textContent="Retry";
+      }finally{older.disabled=false;}
+    }
+    older.onclick=load;
+    load();
+  };
+}
 async function loadDesk(message=""){
   if(!deskPin){lockDesk(message);return;}
   const request=++deskRequest, filter=$("#deskFilter").value, query=deskQuery;
+  clearDeskVerification();
   $("#deskNotice").textContent="Loading inventory…";
   try{
     const params=new URLSearchParams({offset:String(deskOffset)}); if(filter) params.set("status",filter);
@@ -322,6 +384,7 @@ async function loadDesk(message=""){
     $("#deskNotice").textContent=message;
     [...$("#deskList").querySelectorAll("article")].forEach((tile,index)=>{
       const item=items[index], endpoint=`/desk/items/${encodeURIComponent(item.id)}`;
+      bindDeskVerification(tile,endpoint,request);
       async function change(method,path,data,success){
         const controls=[...tile.querySelectorAll("button,input,textarea")], note=tile.querySelector(".item-notice");
         controls.forEach(c=>c.disabled=true); note.textContent="Saving…";

@@ -72,6 +72,45 @@ class StaffTests(unittest.TestCase):
         self.assertEqual(stale.status_code, 409)
         snapclaim.embed.assert_called_once()
 
+    def test_verification_is_staff_only_and_scoped_to_the_item(self):
+        path = f'/desk/items/{self.id}/verification'
+        self.assertEqual(self.client.get(path).status_code, 401)
+        self.assertEqual(self.client.get(path, headers={'X-Desk-Pin': 'wrong'}).status_code, 401)
+        self.assertEqual(self.client.get(f'/desk/items/{uuid4()}/verification', headers=self.auth).status_code, 404)
+        initial = self.client.get(path, headers=self.auth)
+        self.assertEqual(initial.status_code, 200, initial.text)
+        self.assertEqual(initial.headers['cache-control'], 'no-store')
+        self.assertEqual(initial.json(), {'proof_question': 'What is on the bottom?',
+                                          'private_details': 'Private clue', 'attempts': [], 'has_more': False})
+        with patch.object(snapclaim, 'judge_claim', return_value={'passed': False, 'reason': 'Private clue'}):
+            res = self.client.post('/claim', json={'item_id': self.id, 'answer': '  Green triangle  '})
+            self.assertEqual(res.status_code, 200, res.text)
+            self.assertNotIn('Private clue', res.text)
+        with patch.object(snapclaim, 'judge_claim', return_value={'passed': True, 'reason': 'Private clue'}):
+            res = self.client.post('/claim', json={'item_id': self.id, 'answer': 'Gold circle'})
+            self.assertEqual(res.status_code, 200, res.text)
+            self.assertNotIn('Private clue', res.text)
+        snapclaim.MEMORY['claims'].append({'item_id': str(uuid4()), 'answer': 'Unrelated answer', 'passed': True})
+        self.assertEqual(self.client.get(path, headers=self.auth).json()['attempts'],
+                         [{'answer': 'Gold circle', 'passed': True}, {'answer': 'Green triangle', 'passed': False}])
+        self.assertTrue(all('private_details' not in r and 'attempts' not in r for r in self.desk()))
+        self.item['status'] = 'open'
+        public = self.client.post('/search', json={'query': 'bottle'}).json()['results'][0]
+        self.assertEqual(public['proof_question'], 'What is on the bottom?')
+        self.assertNotIn('private_details', public)
+        self.assertNotIn('Green triangle', str(public))
+
+    def test_verification_limits_results_and_can_page_older_attempts(self):
+        snapclaim.MEMORY['claims'].extend({'item_id': self.id, 'answer': str(n), 'passed': False}
+                                       for n in range(51))
+        path = f'/desk/items/{self.id}/verification'
+        first = self.client.get(path, headers=self.auth).json()
+        second = self.client.get(path, headers=self.auth, params={'offset': 50}).json()
+        self.assertEqual([r['answer'] for r in first['attempts']], [str(n) for n in range(50, 0, -1)])
+        self.assertTrue(first['has_more'])
+        self.assertEqual(second['attempts'], [{'answer': '0', 'passed': False}])
+        self.assertFalse(second['has_more'])
+
     def test_archive_filter_return_reopen_and_preserve_history(self):
         snapclaim.MEMORY['claims'].append({'item_id': self.id, 'passed': False})
         before = self.desk()[0]['revision']

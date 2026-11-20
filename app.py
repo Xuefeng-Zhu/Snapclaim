@@ -327,8 +327,9 @@ def claim(body: Claim):
             if verdict["passed"]:
                 MEMORY["items"][item_id].update(status="claimed", _revision=int(revision) + 1)
     if not verdict["passed"]:
-        return {"passed": False, "reason": verdict.get("reason"), "tries_left": max(0, 2 - fails)}
-    return {"passed": True, "reason": verdict.get("reason"), "photo_url": photo_link(key),
+        return {"passed": False, "reason": "That answer didn't match a distinguishing detail.",
+                "tries_left": max(0, 2 - fails)}
+    return {"passed": True, "reason": "Your answer matched a distinguishing detail.", "photo_url": photo_link(key),
             "pickup": f"Show this screen at the front desk. It was found at: {where or 'not noted'}."}
 
 
@@ -404,6 +405,34 @@ def desk(response: ApiResponse, status: DeskStatus | None = None, offset: int = 
                       "revision": str(i.get("_revision", 0)),
                       "claims": sum(1 for c in MEMORY["claims"] if c["item_id"] == i["id"])} for i in rows]
     return items
+
+
+VERIFICATION_PAGE_SIZE = 50
+
+
+@app.get("/desk/items/{item_id}/verification", dependencies=[Depends(require_staff)])
+def desk_verification(response: ApiResponse, item_id: uuid.UUID, offset: int = Query(0, ge=0, le=10_000)):
+    """Read one item's private clues and submitted answers, newest first."""
+    response.headers["Cache-Control"] = "no-store"
+    key = str(item_id)
+    limit = VERIFICATION_PAGE_SIZE + 1
+    if DATABASE:
+        with db() as conn:
+            item = conn.execute("select proof_question, private_details from items where id=%s", (key,)).fetchone()
+            if not item:
+                raise HTTPException(404, "Item not found.")
+            question, private = item
+            rows = conn.execute("select answer, passed from claims where item_id=%s order by id desc limit %s offset %s",
+                                (key, limit, offset)).fetchall()
+    else:
+        with MEMORY_LOCK:
+            item = memory_desk_item(key)
+            question, private = item["proof_question"], item["private_details"]
+            rows = [(c["answer"], c["passed"]) for c in reversed(MEMORY["claims"]) if c["item_id"] == key]
+            rows = rows[offset:offset + limit]
+    return {"proof_question": question, "private_details": private,
+            "attempts": [{"answer": answer, "passed": passed} for answer, passed in rows[:VERIFICATION_PAGE_SIZE]],
+            "has_more": len(rows) > VERIFICATION_PAGE_SIZE}
 
 
 @app.patch("/desk/items/{item_id}", dependencies=[Depends(require_staff)])

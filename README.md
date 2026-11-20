@@ -24,6 +24,8 @@ Open `http://localhost:8000`. The staff view is at `http://localhost:8000/?staff
 
 Staff can search titles, descriptions, found locations, and item IDs, and combine their search with the status filter. Staff can also edit public titles, descriptions and locations, mark physical returns, archive records, and reopen items. Only open items appear in attendee search. Archiving preserves the photo and claim history; reopening does not clear earlier claim attempts. Updates reject stale listings instead of overwriting another staff member's change.
 
+On an item card, open **Show verification details** to compare the ownership question, private clues, and submitted answers. The app shows the AI outcome for each attempt, not a separate official answer. This data is loaded only on demand after PIN authentication and is not part of the public search or staff inventory list. Don’t share clues or past answers with claimants; verify ownership in person.
+
 To use persistent storage, configure `PG*` for a PostgreSQL role and schema with `pgvector` available, verify TLS with your database CA, and configure `OBJ_*` with a private bucket and a bucket-scoped key. The example `snapclaim.service` expects the checkout at `/root/snapclaim` and binds to port 80; use it only on a dedicated host or after checking for a port conflict. Keep credentials out of Git and use a firewall to restrict ingress.
 
 ## Demo with staged objects
