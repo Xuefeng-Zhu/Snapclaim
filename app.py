@@ -53,7 +53,7 @@ s3 = boto3.client(
 ) if BUCKET else None
 
 MAX_PHOTO = 4_000_000          # bytes; the page shrinks photos to ~1024px JPEG before upload
-MATCH_DISTANCE = 0.55          # cosine distance above this = "not a confident match" (tune with real items)
+MATCH_DISTANCE = 0.50          # Keep at least 50% cosine similarity before rounding for display.
 LINK_SECONDS = 600             # presigned photo links last 10 minutes
 app = FastAPI()
 
@@ -244,10 +244,10 @@ def search(body: Search):
                           for item in MEMORY["items"].values() if item["status"] == "open"),
                          key=lambda r: r["distance"])[:5]
     confident = [r for r in results if r["distance"] <= MATCH_DISTANCE]
-    for r in results:
+    for r in confident:
         r["match"] = round(max(0.0, 1 - r["distance"]) * 100)
         r.pop("photo_key", None); r.pop("finder_note", None)
-    return {"results": confident, "near_misses": [] if confident else results[:2],
+    return {"results": confident, "near_misses": [],
             "message": None if confident else "Nothing turned in matches closely yet. Check back later."}
 
 

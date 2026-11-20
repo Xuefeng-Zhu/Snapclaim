@@ -80,7 +80,7 @@
    font:800 18px/1 var(--ui);text-align:center;transform:rotate(8deg);box-shadow:2px 4px 8px rgba(0,0,0,.3);
    clip-path:polygon(12px 0,100% 0,100% 100%,12px 100%,0 50%)}
  .tag small{display:block;font:600 11px var(--ui);letter-spacing:.04em}
- .tag.weak{background:linear-gradient(#e8dcc6,#cbbd9f);color:#6b5b4b}
+
  .tag::before{content:"";position:absolute;left:7px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:#7a5a30}
  .slip{position:relative;margin:-4px 10px 0;background:#fffdf7;padding:14px 14px 14px;box-shadow:2px 6px 12px rgba(0,0,0,.22);font-size:14px}
  .slip .where{color:var(--sub);font-size:13px;margin:6px 0 0}
@@ -206,14 +206,14 @@ $("#turnBtn").onclick=async()=>{const f=$("#photo").files[0];
 
 $("#searchBtn").onclick=async()=>{const q=$("#q").value;const btn=$("#searchBtn");busy(btn,true,"Searching the board…");
   try{const j=await api("/search",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q})});
-    let h=j.message?`<div class="note-empty"><span class="pin"></span>${esc(j.message)}${j.near_misses.length?"<small>A few loose matches, just in case:</small>":""}</div>`:"";
-    h+=j.results.map(r=>card(r,true)).join("")+j.near_misses.map(r=>card(r,false)).join("");
+    let h=j.message?`<div class="note-empty"><span class="pin"></span>${esc(j.message)}</div>`:"";
+    h+=j.results.map(card).join("");
     $("#results").innerHTML=h;
   }catch(e){$("#results").innerHTML=`<div class="verdict bad"><p>${esc(e.message)}</p></div>`;}
   busy(btn,false,"Search the board");};
 
-function card(r,strong){return `<div class="result" id="r-${r.id}">
-  <div class="pol"><span class="pin"></span><div class="tag ${strong?"":"weak"}">${r.match}%<small>match</small></div>
+function card(r){return `<div class="result" id="r-${r.id}">
+  <div class="pol"><span class="pin"></span><div class="tag">${r.match}%<small>match</small></div>
    <div class="shot"><div class="locked"><span class="em">${EMOJI[r.category]||"📦"}</span><span class="lk">${LOCK}</span></div></div>
    <div class="cap">${esc(r.title)}</div></div>
   <div class="slip">${esc(r.public_text)}<p class="where">📍 ${esc(r.found_where||"Location not noted")} · ${when(r.created_at)}</p>
