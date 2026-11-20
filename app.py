@@ -375,20 +375,29 @@ def memory_desk_item(item_id):
 
 
 @app.get("/desk", dependencies=[Depends(require_staff)])
-def desk(response: ApiResponse, status: DeskStatus | None = None, offset: int = Query(0, ge=0, le=10_000)):
+def desk(response: ApiResponse, status: DeskStatus | None = None, offset: int = Query(0, ge=0, le=10_000),
+         q: str = Query("", max_length=160)):
     """Staff inventory, including archived records and short-lived photo links."""
     response.headers["Cache-Control"] = "no-store"
+    q = q.strip()
     if DATABASE:
         with db() as conn:
             rows = conn.execute("select id, title, found_where, status, photo_key, created_at, public_text, xmin::text, "
                                 "(select count(*) from claims where item_id = items.id) from items "
                                 "where (%s::text is null or status = %s) "
-                                "order by created_at desc, id limit 50 offset %s", (status, status, offset)).fetchall()
+                                "and (%s = '' or strpos(lower(concat_ws(' ', title, found_where, public_text, id::text)), lower(%s)) > 0) "
+                                "order by created_at desc, id limit 50 offset %s", (status, status, q, q, offset)).fetchall()
         items = [{"id": str(r[0]), "title": r[1], "found_where": r[2], "status": r[3], "photo_url": photo_link(r[4]),
                   "created_at": r[5].isoformat(), "public_text": r[6], "revision": r[7], "claims": r[8]} for r in rows]
     else:
+        def matches(item):
+            if status is not None and item["status"] != status:
+                return False
+            text = " ".join(str(item[k]) for k in ("title", "found_where", "public_text", "id") if item[k] is not None)
+            return not q or q.lower() in text.lower()
+
         with MEMORY_LOCK:
-            rows = sorted((i for i in MEMORY["items"].values() if status is None or i["status"] == status),
+            rows = sorted((i for i in MEMORY["items"].values() if matches(i)),
                           key=lambda i: (i["created_at"], i["id"]), reverse=True)[offset:offset + 50]
             items = [{"id": i["id"], "title": i["title"], "found_where": i["found_where"], "status": i["status"],
                       "photo_url": photo_link(i["photo_key"]), "created_at": i["created_at"], "public_text": i["public_text"],

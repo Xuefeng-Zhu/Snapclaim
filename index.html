@@ -125,6 +125,8 @@
  .tile .pol{padding-bottom:0} .tile .info{text-align:center;padding:0 8px 14px;font-size:13px;color:var(--sub)}
  .desk-tools,.desk-actions,.desk-pages{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
  .desk-tools{background:#fffaf0;padding:10px 14px;margin-top:20px;border-radius:8px}
+ .desk-search{display:flex;gap:8px;align-items:center;flex:1 1 440px;flex-wrap:wrap}
+ .desk-search input{flex:1 1 170px;min-width:0;width:auto;margin:0}
  .desk-tools label{margin:0} .desk-tools select{font:inherit;padding:6px;color:#3d2c1c;background:#fffdf7;border:1px solid #b38d63;border-radius:5px}
  .desk-pages{justify-content:center;margin:20px 0;color:#2f1d0e}
  .desk-actions{margin-top:9px} .desk-edit{border-top:1px dashed #c5a987;margin-top:10px;padding-top:8px;text-align:left}
@@ -183,7 +185,12 @@
   <div class="stat"><span class="pin"></span><div class="n" id="sTries">0</div><div class="l">claim attempts</div></div>
   <button class="go ghost" id="deskBtn">↻ Refresh</button>
  </div>
- <div class="desk-tools"><label for="deskFilter">Status</label><select id="deskFilter"><option value="">All items</option><option value="open">Open</option><option value="claimed">Claimed</option><option value="returned">Returned</option><option value="archived">Archived</option></select>
+ <div class="desk-tools">
+  <form id="deskSearch" class="desk-search" role="search" aria-label="Staff inventory">
+   <label for="deskQuery">Search items</label><input id="deskQuery" type="search" maxlength="160" placeholder="Title, description, location or ID" autocomplete="off">
+   <button class="desk-small" type="submit">Search</button><button class="desk-small" id="deskClear" type="button">Clear</button>
+  </form>
+  <label for="deskFilter">Status</label><select id="deskFilter"><option value="">All items</option><option value="open">Open</option><option value="claimed">Claimed</option><option value="returned">Returned</option><option value="archived">Archived</option></select>
   <button class="desk-small" id="deskLock" type="button">Lock desk</button></div>
  <div id="deskList" class="board"></div>
  <div class="desk-pages"><button class="desk-small" id="deskPrev" type="button">Previous</button><span id="deskPage"></span><button class="desk-small" id="deskNext" type="button">Next</button></div>
@@ -257,10 +264,11 @@ async function claim(id,btn){const out=$("#c-"+id), root=$("#r-"+id);busy(btn,tr
 const deskStates={open:"Open",claimed:"Claimed",returned:"Returned",archived:"Archived"};
 const deskActions={open:["returned","archived"],claimed:["returned","open","archived"],returned:["open","archived"],archived:["open"]};
 const actionLabels={returned:"Mark returned",archived:"Archive",open:"Reopen"};
-let deskPin="", deskOffset=0, deskRequest=0;
+let deskPin="", deskOffset=0, deskRequest=0, deskQuery="";
 const deskHeaders=()=>({"X-Desk-Pin":deskPin,"Content-Type":"application/json"});
 function lockDesk(message=""){
   deskRequest++; deskPin=""; deskOffset=0; $("#deskList").replaceChildren();
+  deskQuery=""; $("#deskQuery").value="";
   $("#deskInventory").hidden=true; $("#deskLogin").hidden=false; $("#deskNotice").textContent=message;
 }
 function deskTile(item){
@@ -279,10 +287,11 @@ function deskTile(item){
 }
 async function loadDesk(message=""){
   if(!deskPin){lockDesk(message);return;}
-  const request=++deskRequest, filter=$("#deskFilter").value;
+  const request=++deskRequest, filter=$("#deskFilter").value, query=deskQuery;
   $("#deskNotice").textContent="Loading inventory…";
   try{
     const params=new URLSearchParams({offset:String(deskOffset)}); if(filter) params.set("status",filter);
+    if(query) params.set("q",query);
     const items=await api(`/desk?${params}`,{headers:deskHeaders(),cache:"no-store"});
     if(request!==deskRequest) return;
     if(!items.length&&deskOffset){deskOffset-=50;await loadDesk(message);return;}
@@ -292,7 +301,7 @@ async function loadDesk(message=""){
     $("#sTries").textContent=items.reduce((a,i)=>a+i.claims,0);
     $("#deskPage").textContent=items.length?`Items ${deskOffset+1}–${deskOffset+items.length} · Counts on this page`:"No items in this view";
     $("#deskPrev").disabled=!deskOffset; $("#deskNext").disabled=items.length<50;
-    $("#deskList").innerHTML=items.length?items.map(deskTile).join(""):`<div class="note-empty"><span class="pin"></span>No items in this view.</div>`;
+    $("#deskList").innerHTML=items.length?items.map(deskTile).join(""):`<div class="note-empty"><span class="pin"></span>${query?"No items match this search.":"No items in this view."}</div>`;
     $("#deskNotice").textContent=message;
     [...$("#deskList").querySelectorAll("article")].forEach((tile,index)=>{
       const item=items[index], endpoint=`/desk/items/${encodeURIComponent(item.id)}`;
@@ -314,6 +323,8 @@ async function loadDesk(message=""){
 $("#deskLogin").onsubmit=e=>{e.preventDefault();deskPin=$("#deskCode").value;$("#deskCode").value="";loadDesk();};
 $("#deskLock").onclick=()=>{lockDesk();$("#deskCode").focus();};
 $("#deskBtn").onclick=()=>loadDesk();
+$("#deskSearch").onsubmit=e=>{e.preventDefault();deskQuery=$("#deskQuery").value.trim();deskOffset=0;loadDesk();};
+$("#deskClear").onclick=()=>{deskQuery="";$("#deskQuery").value="";deskOffset=0;loadDesk();$("#deskQuery").focus();};
 $("#deskFilter").onchange=()=>{deskOffset=0;loadDesk();};
 $("#deskPrev").onclick=()=>{deskOffset=Math.max(0,deskOffset-50);loadDesk();};
 $("#deskNext").onclick=()=>{deskOffset+=50;loadDesk();};

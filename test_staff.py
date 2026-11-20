@@ -41,6 +41,23 @@ class StaffTests(unittest.TestCase):
         self.assertEqual(self.item['status'], 'open')
         snapclaim.embed.assert_not_called()
 
+    def test_desk_search_filters_before_pagination_and_ignores_private_fields(self):
+        self.item.update(title='Silver 100% bottle', found_where='Cedar Hall', status='archived')
+        for n in range(51):
+            key = str(uuid4())
+            snapclaim.MEMORY['items'][key] = {**self.item, 'id': key, 'title': 'Other item',
+                'found_where': 'Stage', 'status': 'open', 'created_at': f'2026-11-21T00:00:{n:02d}+00:00'}
+        self.assertNotIn(self.id, [r['id'] for r in self.desk()])
+        for q in (' silver ', 'CEDAR hALL', 'black bottle', '100%', self.id):
+            matches = self.desk(q=q, status='archived')
+            self.assertEqual([r['id'] for r in matches], [self.id])
+        self.assertEqual(self.desk(q='100%', status='open'), [])
+        self.assertEqual(self.desk(q='Private clue'), [])
+        self.assertEqual(self.desk(q='What is on the bottom?'), [])
+        self.assertEqual(self.desk(q='silver', offset=50), [])
+        self.assertEqual(self.client.get('/desk', params={'q': 'silver'}).status_code, 401)
+        snapclaim.embed.assert_not_called()
+
     def test_edit_reindexes_and_rejects_stale_edit(self):
         before = self.desk()[0]
         self.assertNotIn('private_details', before)
